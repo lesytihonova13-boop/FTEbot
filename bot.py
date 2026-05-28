@@ -193,6 +193,19 @@ def admin_list(m):
         text += f"{status} {u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
     bot.send_message(m.chat.id, text)
 
+@bot.message_handler(commands=['all_users'])
+def cmd_all_users(m):
+    if not is_admin(m.chat.id):
+        return
+    users = get_all_users()
+    if not users:
+        bot.send_message(m.chat.id, "Нет менеджеров в базе")
+        return
+    text = "Вот кто есть в базе:\n"
+    for u in users:
+        text += f"- {u[1]} (chat_id: {u[0]})\n"
+    bot.send_message(m.chat.id, text)
+
 def send_reports():
     while True:
         now = datetime.now()
