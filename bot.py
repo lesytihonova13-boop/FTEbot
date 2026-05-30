@@ -240,11 +240,30 @@ def send_reports():
                 report = "📊 ОТЧЁТ\n\n"
                 for u in users:
                     percent = (u[3]/u[2]*100) if u[2] else 0
-                    report += f"{u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
-                try:
-                    bot.send_message(ADMIN_CHAT_ID, report)
-                except:
-                    pass
+                    status = "✅" if percent >= 100 else "⚠️"
+                    report += f"{status} {u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
+                
+                # Отправляем ВСЕМ зарегистрированным пользователям
+                conn = sqlite3.connect('data.db')
+                c = conn.cursor()
+                c.execute('SELECT chat_id FROM users')
+                all_users = c.fetchall()
+                conn.close()
+                
+                for user in all_users:
+                    chat_id = user[0]
+                    try:
+                        bot.send_message(chat_id, report)
+                    except:
+                        pass
+                
+                # Также отправляем администраторам и тимлидерам (если они не в списке users)
+                for admin_chat in [ADMIN_CHAT_ID, TEAMLEAD_CHAT_ID]:
+                    if admin_chat:
+                        try:
+                            bot.send_message(admin_chat, report)
+                        except:
+                            pass
         time.sleep(60)
 
 @app.route('/')
