@@ -210,6 +210,26 @@ def cmd_all_users(m):
     for u in users:
         text += f"- {u[1]} (сделано: {u[3]}/{u[2]})\n"
     bot.send_message(m.chat.id, text)
+    
+    @bot.message_handler(commands=['delete_user'])
+def cmd_delete_user(m):
+    if not is_admin(m.chat.id):
+        bot.send_message(m.chat.id, "❌ Только администратор может удалять менеджеров")
+        return
+    bot.send_message(m.chat.id, "✏️ Введите точное имя менеджера, которого нужно удалить:")
+    bot.register_next_step_handler(m, delete_user_by_name)
+
+def delete_user_by_name(m):
+    name = m.text.strip()
+    conn = sqlite3.connect('data.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM users WHERE name=?", (name,))
+    conn.commit()
+    if c.rowcount > 0:
+        bot.send_message(m.chat.id, f"✅ Менеджер **{name}** удалён из базы.", parse_mode="Markdown")
+    else:
+        bot.send_message(m.chat.id, f"❌ Менеджер с именем **{name}** не найден.", parse_mode="Markdown")
+    conn.close()
 
 def send_reports():
     while True:
