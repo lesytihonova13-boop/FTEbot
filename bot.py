@@ -89,7 +89,7 @@ def set_name(m):
     chat_id = m.chat.id
     name = m.text.strip()
     save_user(chat_id, name, 25, 0)
-    bot.send_message(chat_id, f"Приятно познакомиться, {name}! План: 25 юзеров в день.")
+    bot.send_message(chat_id, f"Приятно познакомиться, {name}! План: 25 юзеров в день.", reply_markup=menu(chat_id))
     show_status(chat_id)
 
 def show_status(chat_id):
@@ -98,13 +98,13 @@ def show_status(chat_id):
     percent = (u['done']/u['plan']*100) if u['plan'] else 0
     bar = "█" * int(percent/10) + "░" * (10 - int(percent/10))
     if u['done'] >= 25:
-        motivation = "🏆 ОТЛИЧНО!"
+        motivation = "🏆 ОТЛИЧНО! Ты на высоте!"
     elif u['done'] >= 23:
-        motivation = "✅ ХОРОШО!"
+        motivation = "✅ ХОРОШО! Почти у цели!"
     elif u['done'] >= 20:
-        motivation = "👍 ТЫ СМОЖЕШЬ!"
+        motivation = "👍 ТЫ СМОЖЕШЬ! Верю в тебя!"
     else:
-        motivation = "⚠️ НУЖНО ДОЖАТЬ!"
+        motivation = "⚠️ НУЖНО ДОЖАТЬ! Соберись!"
     bot.send_message(chat_id, f"{motivation}\n\n`{bar}` {percent:.1f}%\n✅ Сделано: {u['done']}\n⚠️ Осталось: {left}\n🎯 План: {u['plan']}", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "📊 Статус")
@@ -113,26 +113,29 @@ def cmd_status(m):
 
 @bot.message_handler(func=lambda m: m.text == "➕ Внести")
 def ask_add(m):
-    msg = bot.send_message(m.chat.id, "Сколько юзеров сделали?")
-    bot.register_next_step_handler(msg, add_user)
+    bot.send_message(m.chat.id, "Сколько юзеров сделали? Введите число:")
+    bot.register_next_step_handler(m, add_user)
 
 def add_user(m):
     chat_id = m.chat.id
     try:
         val = int(m.text.strip())
-        if val <= 0: raise ValueError
+        if val <= 0:
+            bot.send_message(chat_id, "❌ Введите положительное число")
+            return
         u = get_user(chat_id)
         new_done = u['done'] + val
         save_user(chat_id, u['name'], u['plan'], new_done)
+        bot.send_message(chat_id, f"✅ Добавлено {val} юзеров!")
         if new_done >= u['plan'] and u['done'] < u['plan']:
-            bot.send_message(chat_id, f"🎉 Поздравляю! План выполнен!")
+            bot.send_message(chat_id, f"🎉 ПОЗДРАВЛЯЮ! План выполнен!")
             try:
                 bot.send_message(ADMIN_CHAT_ID, f"✅ {u['name']} выполнил план! {new_done}/{u['plan']}")
             except:
                 pass
         show_status(chat_id)
     except:
-        bot.send_message(chat_id, "❌ Введите число")
+        bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 5")
 
 @bot.message_handler(func=lambda m: m.text == "🏆 Рейтинг")
 def cmd_rating(m):
@@ -145,7 +148,7 @@ def cmd_rating(m):
         percent = (u[3]/u[2]*100) if u[2] else 0
         data.append((u[1], percent, u[3], u[2]))
     data.sort(key=lambda x: x[1], reverse=True)
-    text = "🏆 РЕЙТИНГ 🏆\n\n"
+    text = "🏆 РЕЙТИНГ МЕНЕДЖЕРОВ 🏆\n\n"
     for i, (name, pct, done, plan) in enumerate(data[:10], 1):
         medal = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else f"{i}."
         text += f"{medal} {name}: {pct:.1f}% ({done}/{plan})\n"
@@ -153,27 +156,29 @@ def cmd_rating(m):
 
 @bot.message_handler(func=lambda m: m.text == "✏️ План")
 def ask_plan(m):
-    msg = bot.send_message(m.chat.id, "Введите новый план:")
-    bot.register_next_step_handler(msg, set_plan)
+    bot.send_message(m.chat.id, "Введите новый план на день:")
+    bot.register_next_step_handler(m, set_plan)
 
 def set_plan(m):
     chat_id = m.chat.id
     try:
         p = int(m.text.strip())
-        if p <= 0: raise ValueError
+        if p <= 0:
+            bot.send_message(chat_id, "❌ Введите положительное число")
+            return
         u = get_user(chat_id)
         save_user(chat_id, u['name'], p, u['done'])
-        bot.send_message(chat_id, f"✅ План изменён на {p}")
+        bot.send_message(chat_id, f"✅ План изменён на {p} юзеров в день")
         show_status(chat_id)
     except:
-        bot.send_message(chat_id, "❌ Введите число")
+        bot.send_message(chat_id, "❌ Введите число, например: 25")
 
 @bot.message_handler(func=lambda m: m.text == "🔄 Сброс")
 def cmd_reset(m):
     chat_id = m.chat.id
     u = get_user(chat_id)
     save_user(chat_id, u['name'], u['plan'], 0)
-    bot.send_message(chat_id, "🔄 Счётчик сброшен")
+    bot.send_message(chat_id, "🔄 Счётчик сброшен. Начинаете с нуля!")
     show_status(chat_id)
 
 @bot.message_handler(func=lambda m: m.text == "📊 Рейтинг" and is_admin(m.chat.id))
@@ -201,9 +206,9 @@ def cmd_all_users(m):
     if not users:
         bot.send_message(m.chat.id, "Нет менеджеров в базе")
         return
-    text = "Вот кто есть в базе:\n"
+    text = "📋 Менеджеры в базе:\n"
     for u in users:
-        text += f"- {u[1]} (chat_id: {u[0]})\n"
+        text += f"- {u[1]} (сделано: {u[3]}/{u[2]})\n"
     bot.send_message(m.chat.id, text)
 
 def send_reports():
