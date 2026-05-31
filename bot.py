@@ -62,9 +62,13 @@ def is_admin(chat_id):
 
 def menu(chat_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    if is_admin(chat_id):
+    if is_admin_or_teamlead(chat_id):
+        # Администратор/тимлидер получает ВСЕ кнопки
         markup.add(KeyboardButton("📊 Рейтинг"), KeyboardButton("📋 Список"))
+        markup.add(KeyboardButton("📊 Мой статус"), KeyboardButton("➕ Внести"))
+        markup.add(KeyboardButton("✏️ Мой план"), KeyboardButton("🔄 Мой сброс"))
     else:
+        # Обычный менеджер
         markup.add(KeyboardButton("📊 Статус"), KeyboardButton("➕ Внести"))
         markup.add(KeyboardButton("🏆 Рейтинг"), KeyboardButton("✏️ План"))
         markup.add(KeyboardButton("🔄 Сброс"))
@@ -74,22 +78,30 @@ def menu(chat_id):
 def start(m):
     chat_id = m.chat.id
     init_db()
-    if is_admin(chat_id):
-        bot.send_message(chat_id, "👋 Здравствуйте, Руководитель!", reply_markup=menu(chat_id))
+    if is_admin_or_teamlead(chat_id):
+        # Проверяем, зарегистрирован ли администратор как менеджер
+        user = get_user(chat_id)
+        if user["name"] is None:
+            msg = bot.send_message(chat_id, "👋 Здравствуйте, Руководитель!\n\nВведите ваше имя для учёта личного прогресса:")
+            bot.register_next_step_handler(msg, set_admin_name)
+        else:
+            bot.send_message(chat_id, f"👋 Здравствуйте, Руководитель {user['name']}!", reply_markup=menu(chat_id))
+            show_status(chat_id)
         return
-    user = get_user(chat_id)
-    if user["name"] is None:
-        msg = bot.send_message(chat_id, "Привет! Как тебя зовут?")
-        bot.register_next_step_handler(msg, set_name)
-    else:
-        bot.send_message(chat_id, f"С возвращением, {user['name']}!", reply_markup=menu(chat_id))
-        show_status(chat_id)
+    ...
 
 def set_name(m):
     chat_id = m.chat.id
     name = m.text.strip()
     save_user(chat_id, name, 25, 0)
     bot.send_message(chat_id, f"Приятно познакомиться, {name}! План: 25 юзеров в день.", reply_markup=menu(chat_id))
+    show_status(chat_id)
+    
+    def set_admin_name(m):
+    chat_id = m.chat.id
+    name = m.text.strip()
+    save_user(chat_id, name, 25, 0)
+    bot.send_message(chat_id, f"✅ Отлично, {name}! Вы зарегистрированы как менеджер.\n\nТеперь вам доступны ВСЕ кнопки:\n- 📊 Рейтинг / 📋 Список (для руководства)\n- 📊 Мой статус / ➕ Внести (для личного учёта)", reply_markup=menu(chat_id))
     show_status(chat_id)
 
 def show_status(chat_id):
@@ -230,6 +242,66 @@ def delete_user_by_name(m):
     else:
         bot.send_message(m.chat.id, f"❌ Менеджер с именем **{name}** не найден.", parse_mode="Markdown")
     conn.close()
+    
+    @bot.message_handler(func=lambda m: m.text == "📊 Мой статус" and is_admin_or_teamlead(m.chat.id))
+def admin_my_status(m):
+    show_status(m.chat.id)
+
+@bot.message_handler(func=lambda m: m.text == "➕ Внести" and is_admin_or_teamlead(m.chat.id))
+def admin_add(m):
+    bot.send_message(m.chat.id, "Сколько юзеров сделали? Введите число:")
+    bot.register_next_step_handler(m, admin_add_user)
+
+def admin_add_user(m):
+    chat_id = m.chat.id
+    try:
+        val = int(m.text.strip())
+        if val <= 0:
+            bot.send_message(chat_id, "❌ Введите положительное число")
+            return
+        u = get_user(chat_id)
+        if u["name"] is None:
+            bot.send_message(chat_id, "❌ Сначала зарегистрируйтесь через /start")
+            return
+        new_done = u['done'] + val
+        save_user(chat_id, u['name'], u['plan'], new_done)
+        bot.send_message(chat_id, f"✅ Добавлено {val} юзеров!")
+        show_status(chat_id)
+    except:
+        bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 5")
+
+@bot.message_handler(func=lambda m: m.text == "✏️ Мой план" and is_admin_or_teamlead(m.chat.id))
+def admin_my_plan(m):
+    bot.send_message(m.chat.id, "Введите ваш новый план на день:")
+    bot.register_next_step_handler(m, admin_set_plan)
+
+def admin_set_plan(m):
+    chat_id = m.chat.id
+    try:
+        p = int(m.text.strip())
+        if p <= 0:
+            bot.send_message(chat_id, "❌ Введите положительное число")
+            return
+        u = get_user(chat_id)
+        if u["name"] is None:
+            bot.send_message(chat_id, "❌ Сначала зарегистрируйтесь через /start")
+            return
+        save_user(chat_id, u['name'], p, u['done'])
+        bot.send_message(chat_id, f"✅ Ваш план изменён на {p} юзеров в день")
+        show_status(chat_id)
+    except:
+        bot.send_message(chat_id, "❌ Введите число, например: 25")
+
+@bot.message_handler(func=lambda m: m.text == "🔄 Мой сброс" and is_admin_or_teamlead(m.chat.id))
+def admin_my_reset(m):
+    chat_id = m.chat.id
+    u = get_user(chat_id)
+    if u["name"] is None:
+        bot.send_message(chat_id, "❌ Сначала зарегистрируйтесь через /start")
+        return
+    save_user(chat_id, u['name'], u['plan'], 0)
+    bot.send_message(chat_id, "🔄 Ваш счётчик сброшен. Начинаете с нуля!")
+    show_status(chat_id)
 
 def send_reports():
     while True:
