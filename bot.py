@@ -24,6 +24,8 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS admins (
         chat_id INTEGER PRIMARY KEY)''')
     c.execute('INSERT OR IGNORE INTO admins (chat_id) VALUES (?)', (ADMIN_CHAT_ID,))
+    # Автоматически добавляем администратора как менеджера
+    c.execute('INSERT OR IGNORE INTO users (chat_id, name, plan, done) VALUES (?, ?, 25, 0)', (ADMIN_CHAT_ID, "Руководитель"))
     conn.commit()
     conn.close()
 
@@ -60,15 +62,23 @@ def is_admin(chat_id):
     conn.close()
     return r is not None
 
+def get_all_chats_for_report():
+    conn = sqlite3.connect('data.db')
+    c = conn.cursor()
+    c.execute('SELECT chat_id FROM users')
+    users = [row[0] for row in c.fetchall()]
+    c.execute('SELECT chat_id FROM admins')
+    admins = [row[0] for row in c.fetchall()]
+    conn.close()
+    return list(set(users + admins))
+
 def menu(chat_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    if is_admin_or_teamlead(chat_id):
-        # Администратор/тимлидер получает ВСЕ кнопки
+    if is_admin(chat_id):
         markup.add(KeyboardButton("📊 Рейтинг"), KeyboardButton("📋 Список"))
         markup.add(KeyboardButton("📊 Мой статус"), KeyboardButton("➕ Внести"))
         markup.add(KeyboardButton("✏️ Мой план"), KeyboardButton("🔄 Мой сброс"))
     else:
-        # Обычный менеджер
         markup.add(KeyboardButton("📊 Статус"), KeyboardButton("➕ Внести"))
         markup.add(KeyboardButton("🏆 Рейтинг"), KeyboardButton("✏️ План"))
         markup.add(KeyboardButton("🔄 Сброс"))
@@ -78,31 +88,22 @@ def menu(chat_id):
 def start(m):
     chat_id = m.chat.id
     init_db()
-    if is_admin_or_teamlead(chat_id):
-        # Проверяем, зарегистрирован ли администратор как менеджер
-        user = get_user(chat_id)
-        if user["name"] is None:
-            msg = bot.send_message(chat_id, "👋 Здравствуйте, Руководитель!\n\nВведите ваше имя для учёта личного прогресса:")
-            bot.register_next_step_handler(msg, set_admin_name)
-        else:
-            bot.send_message(chat_id, f"👋 Здравствуйте, Руководитель {user['name']}!", reply_markup=menu(chat_id))
+    user = get_user(chat_id)
+    if user["name"] is None:
+        msg = bot.send_message(chat_id, "Привет! Как тебя зовут?")
+        bot.register_next_step_handler(msg, set_name)
+    else:
+        bot.send_message(chat_id, f"С возвращением, {user['name']}!", reply_markup=menu(chat_id))
+        if not is_admin(chat_id):
             show_status(chat_id)
-        return
-    ...
 
 def set_name(m):
     chat_id = m.chat.id
     name = m.text.strip()
     save_user(chat_id, name, 25, 0)
     bot.send_message(chat_id, f"Приятно познакомиться, {name}! План: 25 юзеров в день.", reply_markup=menu(chat_id))
-    show_status(chat_id)
-    
-    def set_admin_name(m):
-    chat_id = m.chat.id
-    name = m.text.strip()
-    save_user(chat_id, name, 25, 0)
-    bot.send_message(chat_id, f"✅ Отлично, {name}! Вы зарегистрированы как менеджер.\n\nТеперь вам доступны ВСЕ кнопки:\n- 📊 Рейтинг / 📋 Список (для руководства)\n- 📊 Мой статус / ➕ Внести (для личного учёта)", reply_markup=menu(chat_id))
-    show_status(chat_id)
+    if not is_admin(chat_id):
+        show_status(chat_id)
 
 def show_status(chat_id):
     u = get_user(chat_id)
@@ -119,11 +120,11 @@ def show_status(chat_id):
         motivation = "⚠️ НУЖНО ДОЖАТЬ! Соберись!"
     bot.send_message(chat_id, f"{motivation}\n\n`{bar}` {percent:.1f}%\n✅ Сделано: {u['done']}\n⚠️ Осталось: {left}\n🎯 План: {u['plan']}", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: m.text == "📊 Статус")
+@bot.message_handler(func=lambda m: m.text in ["📊 Статус", "📊 Мой статус"])
 def cmd_status(m):
     show_status(m.chat.id)
 
-@bot.message_handler(func=lambda m: m.text == "➕ Внести")
+@bot.message_handler(func=lambda m: m.text in ["➕ Внести", "➕ Внести"])
 def ask_add(m):
     bot.send_message(m.chat.id, "Сколько юзеров сделали? Введите число:")
     bot.register_next_step_handler(m, add_user)
@@ -141,15 +142,11 @@ def add_user(m):
         bot.send_message(chat_id, f"✅ Добавлено {val} юзеров!")
         if new_done >= u['plan'] and u['done'] < u['plan']:
             bot.send_message(chat_id, f"🎉 ПОЗДРАВЛЯЮ! План выполнен!")
-            try:
-                bot.send_message(ADMIN_CHAT_ID, f"✅ {u['name']} выполнил план! {new_done}/{u['plan']}")
-            except:
-                pass
         show_status(chat_id)
     except:
         bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 5")
 
-@bot.message_handler(func=lambda m: m.text == "🏆 Рейтинг")
+@bot.message_handler(func=lambda m: m.text in ["🏆 Рейтинг", "📊 Рейтинг"])
 def cmd_rating(m):
     users = get_all_users()
     if not users:
@@ -166,7 +163,7 @@ def cmd_rating(m):
         text += f"{medal} {name}: {pct:.1f}% ({done}/{plan})\n"
     bot.send_message(m.chat.id, text)
 
-@bot.message_handler(func=lambda m: m.text == "✏️ План")
+@bot.message_handler(func=lambda m: m.text in ["✏️ План", "✏️ Мой план"])
 def ask_plan(m):
     bot.send_message(m.chat.id, "Введите новый план на день:")
     bot.register_next_step_handler(m, set_plan)
@@ -185,17 +182,13 @@ def set_plan(m):
     except:
         bot.send_message(chat_id, "❌ Введите число, например: 25")
 
-@bot.message_handler(func=lambda m: m.text == "🔄 Сброс")
+@bot.message_handler(func=lambda m: m.text in ["🔄 Сброс", "🔄 Мой сброс"])
 def cmd_reset(m):
     chat_id = m.chat.id
     u = get_user(chat_id)
     save_user(chat_id, u['name'], u['plan'], 0)
     bot.send_message(chat_id, "🔄 Счётчик сброшен. Начинаете с нуля!")
     show_status(chat_id)
-
-@bot.message_handler(func=lambda m: m.text == "📊 Рейтинг" and is_admin(m.chat.id))
-def admin_rating(m):
-    cmd_rating(m)
 
 @bot.message_handler(func=lambda m: m.text == "📋 Список" and is_admin(m.chat.id))
 def admin_list(m):
@@ -210,99 +203,6 @@ def admin_list(m):
         text += f"{status} {u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
     bot.send_message(m.chat.id, text)
 
-@bot.message_handler(commands=['all_users'])
-def cmd_all_users(m):
-    if not is_admin(m.chat.id):
-        return
-    users = get_all_users()
-    if not users:
-        bot.send_message(m.chat.id, "Нет менеджеров в базе")
-        return
-    text = "📋 Менеджеры в базе:\n"
-    for u in users:
-        text += f"- {u[1]} (сделано: {u[3]}/{u[2]})\n"
-    bot.send_message(m.chat.id, text)
-    
-    @bot.message_handler(commands=['delete_user'])
-def cmd_delete_user(m):
-    if not is_admin(m.chat.id):
-        bot.send_message(m.chat.id, "❌ Только администратор может удалять менеджеров")
-        return
-    bot.send_message(m.chat.id, "✏️ Введите точное имя менеджера, которого нужно удалить:")
-    bot.register_next_step_handler(m, delete_user_by_name)
-
-def delete_user_by_name(m):
-    name = m.text.strip()
-    conn = sqlite3.connect('data.db')
-    c = conn.cursor()
-    c.execute("DELETE FROM users WHERE name=?", (name,))
-    conn.commit()
-    if c.rowcount > 0:
-        bot.send_message(m.chat.id, f"✅ Менеджер **{name}** удалён из базы.", parse_mode="Markdown")
-    else:
-        bot.send_message(m.chat.id, f"❌ Менеджер с именем **{name}** не найден.", parse_mode="Markdown")
-    conn.close()
-    
-    @bot.message_handler(func=lambda m: m.text == "📊 Мой статус" and is_admin_or_teamlead(m.chat.id))
-def admin_my_status(m):
-    show_status(m.chat.id)
-
-@bot.message_handler(func=lambda m: m.text == "➕ Внести" and is_admin_or_teamlead(m.chat.id))
-def admin_add(m):
-    bot.send_message(m.chat.id, "Сколько юзеров сделали? Введите число:")
-    bot.register_next_step_handler(m, admin_add_user)
-
-def admin_add_user(m):
-    chat_id = m.chat.id
-    try:
-        val = int(m.text.strip())
-        if val <= 0:
-            bot.send_message(chat_id, "❌ Введите положительное число")
-            return
-        u = get_user(chat_id)
-        if u["name"] is None:
-            bot.send_message(chat_id, "❌ Сначала зарегистрируйтесь через /start")
-            return
-        new_done = u['done'] + val
-        save_user(chat_id, u['name'], u['plan'], new_done)
-        bot.send_message(chat_id, f"✅ Добавлено {val} юзеров!")
-        show_status(chat_id)
-    except:
-        bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 5")
-
-@bot.message_handler(func=lambda m: m.text == "✏️ Мой план" and is_admin_or_teamlead(m.chat.id))
-def admin_my_plan(m):
-    bot.send_message(m.chat.id, "Введите ваш новый план на день:")
-    bot.register_next_step_handler(m, admin_set_plan)
-
-def admin_set_plan(m):
-    chat_id = m.chat.id
-    try:
-        p = int(m.text.strip())
-        if p <= 0:
-            bot.send_message(chat_id, "❌ Введите положительное число")
-            return
-        u = get_user(chat_id)
-        if u["name"] is None:
-            bot.send_message(chat_id, "❌ Сначала зарегистрируйтесь через /start")
-            return
-        save_user(chat_id, u['name'], p, u['done'])
-        bot.send_message(chat_id, f"✅ Ваш план изменён на {p} юзеров в день")
-        show_status(chat_id)
-    except:
-        bot.send_message(chat_id, "❌ Введите число, например: 25")
-
-@bot.message_handler(func=lambda m: m.text == "🔄 Мой сброс" and is_admin_or_teamlead(m.chat.id))
-def admin_my_reset(m):
-    chat_id = m.chat.id
-    u = get_user(chat_id)
-    if u["name"] is None:
-        bot.send_message(chat_id, "❌ Сначала зарегистрируйтесь через /start")
-        return
-    save_user(chat_id, u['name'], u['plan'], 0)
-    bot.send_message(chat_id, "🔄 Ваш счётчик сброшен. Начинаете с нуля!")
-    show_status(chat_id)
-
 def send_reports():
     while True:
         now = datetime.now()
@@ -312,30 +212,12 @@ def send_reports():
                 report = "📊 ОТЧЁТ\n\n"
                 for u in users:
                     percent = (u[3]/u[2]*100) if u[2] else 0
-                    status = "✅" if percent >= 100 else "⚠️"
-                    report += f"{status} {u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
-                
-                # Отправляем ВСЕМ зарегистрированным пользователям
-                conn = sqlite3.connect('data.db')
-                c = conn.cursor()
-                c.execute('SELECT chat_id FROM users')
-                all_users = c.fetchall()
-                conn.close()
-                
-                for user in all_users:
-                    chat_id = user[0]
+                    report += f"{u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
+                for chat_id in get_all_chats_for_report():
                     try:
                         bot.send_message(chat_id, report)
                     except:
                         pass
-                
-                # Также отправляем администраторам и тимлидерам (если они не в списке users)
-                for admin_chat in [ADMIN_CHAT_ID, TEAMLEAD_CHAT_ID]:
-                    if admin_chat:
-                        try:
-                            bot.send_message(admin_chat, report)
-                        except:
-                            pass
         time.sleep(60)
 
 @app.route('/')
