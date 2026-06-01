@@ -14,42 +14,60 @@ ADMIN_CHAT_ID = 284970550
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
+# План в минутах (480 минут = 8 часов)
+TARGET_MINUTES = 480
+
+def format_time(minutes):
+    hours = minutes // 60
+    mins = minutes % 60
+    if hours > 0:
+        return f"{hours}ч {mins}мин"
+    return f"{mins}мин"
+
 def init_db():
     conn = sqlite3.connect('data.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         chat_id INTEGER PRIMARY KEY,
         name TEXT,
-        plan INTEGER DEFAULT 25,
-        done INTEGER DEFAULT 0)''')
+        plan_users INTEGER DEFAULT 25,
+        done_users INTEGER DEFAULT 0,
+        plan_minutes INTEGER DEFAULT ?,
+        done_minutes INTEGER DEFAULT 0)''', (TARGET_MINUTES,))
     c.execute('''CREATE TABLE IF NOT EXISTS admins (
         chat_id INTEGER PRIMARY KEY)''')
     c.execute('INSERT OR IGNORE INTO admins (chat_id) VALUES (?)', (ADMIN_CHAT_ID,))
-    c.execute('INSERT OR IGNORE INTO users (chat_id, name, plan, done) VALUES (?, ?, 25, 0)', (ADMIN_CHAT_ID, "Руководитель"))
+    c.execute('INSERT OR IGNORE INTO users (chat_id, name, plan_users, done_users, plan_minutes, done_minutes) VALUES (?, ?, 25, 0, ?, 0)', (ADMIN_CHAT_ID, "Руководитель", TARGET_MINUTES))
     conn.commit()
     conn.close()
 
 def get_user(chat_id):
     conn = sqlite3.connect('data.db')
     c = conn.cursor()
-    c.execute('SELECT name, plan, done FROM users WHERE chat_id=?', (chat_id,))
+    c.execute('SELECT name, plan_users, done_users, plan_minutes, done_minutes FROM users WHERE chat_id=?', (chat_id,))
     r = c.fetchone()
     conn.close()
     if r:
-        return {"name": r[0], "plan": r[1], "done": r[2]}
-    return {"name": None, "plan": 25, "done": 0}
+        return {
+            "name": r[0],
+            "plan_users": r[1],
+            "done_users": r[2],
+            "plan_minutes": r[3],
+            "done_minutes": r[4]
+        }
+    return {"name": None, "plan_users": 25, "done_users": 0, "plan_minutes": TARGET_MINUTES, "done_minutes": 0}
 
-def save_user(chat_id, name, plan, done):
+def save_user(chat_id, name, plan_users, done_users, plan_minutes, done_minutes):
     conn = sqlite3.connect('data.db')
     c = conn.cursor()
-    c.execute('INSERT OR REPLACE INTO users VALUES (?,?,?,?)', (chat_id, name, plan, done))
+    c.execute('INSERT OR REPLACE INTO users VALUES (?,?,?,?,?,?)', (chat_id, name, plan_users, done_users, plan_minutes, done_minutes))
     conn.commit()
     conn.close()
 
 def get_all_users():
     conn = sqlite3.connect('data.db')
     c = conn.cursor()
-    c.execute('SELECT chat_id, name, plan, done FROM users WHERE plan>0')
+    c.execute('SELECT chat_id, name, plan_users, done_users, plan_minutes, done_minutes FROM users WHERE plan_users>0 OR plan_minutes>0')
     r = c.fetchall()
     conn.close()
     return r
@@ -72,14 +90,34 @@ def get_all_chats_for_report():
     conn.close()
     return list(set(users + admins))
 
+def get_motivation_users(done):
+    if done >= 25:
+        return "🏆 ОТЛИЧНО! Ты на высоте!"
+    elif done >= 23:
+        return "✅ ХОРОШО! Почти у цели!"
+    elif done >= 20:
+        return "👍 ТЫ СМОЖЕШЬ! Верю в тебя!"
+    else:
+        return "⚠️ НУЖНО ДОЖАТЬ! Соберись!"
+
+def get_motivation_minutes(done):
+    if done >= TARGET_MINUTES:
+        return "🏆 ОТЛИЧНО! Время использовано отлично!"
+    elif done >= TARGET_MINUTES * 0.9:
+        return "✅ ХОРОШО! Почти у цели по времени!"
+    elif done >= TARGET_MINUTES * 0.7:
+        return "👍 ТЫ СМОЖЕШЬ! Поднажми!"
+    else:
+        return "⚠️ НУЖНО ДОЖАТЬ! Мало времени!"
+
 def menu(chat_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     if is_admin(chat_id):
         markup.add(KeyboardButton("📊 Рейтинг"), KeyboardButton("📋 Список"))
-        markup.add(KeyboardButton("📊 Мой статус"), KeyboardButton("➕ Внести"))
+        markup.add(KeyboardButton("📊 Мой статус"), KeyboardButton("➕ Внести юзеров"), KeyboardButton("⏱ Внести минуты"))
         markup.add(KeyboardButton("✏️ Мой план"), KeyboardButton("🔄 Мой сброс"))
     else:
-        markup.add(KeyboardButton("📊 Статус"), KeyboardButton("➕ Внести"))
+        markup.add(KeyboardButton("📊 Статус"), KeyboardButton("➕ Внести юзеров"), KeyboardButton("⏱ Внести минуты"))
         markup.add(KeyboardButton("🏆 Рейтинг"), KeyboardButton("✏️ План"))
         markup.add(KeyboardButton("🔄 Сброс"))
     return markup
@@ -100,51 +138,82 @@ def start(m):
 def set_name(m):
     chat_id = m.chat.id
     name = m.text.strip()
-    save_user(chat_id, name, 25, 0)
-    bot.send_message(chat_id, f"Приятно познакомиться, {name}! План: 25 юзеров в день.", reply_markup=menu(chat_id))
+    save_user(chat_id, name, 25, 0, TARGET_MINUTES, 0)
+    bot.send_message(chat_id, f"Приятно познакомиться, {name}!\n\n📊 План по юзерам: 25\n⏱ План по времени: {format_time(TARGET_MINUTES)}", reply_markup=menu(chat_id))
     if not is_admin(chat_id):
         show_status(chat_id)
 
 def show_status(chat_id):
     u = get_user(chat_id)
-    left = u['plan'] - u['done']
-    percent = (u['done']/u['plan']*100) if u['plan'] else 0
-    bar = "█" * int(percent/10) + "░" * (10 - int(percent/10))
-    if u['done'] >= 25:
-        motivation = "🏆 ОТЛИЧНО! Ты на высоте!"
-    elif u['done'] >= 23:
-        motivation = "✅ ХОРОШО! Почти у цели!"
-    elif u['done'] >= 20:
-        motivation = "👍 ТЫ СМОЖЕШЬ! Верю в тебя!"
-    else:
-        motivation = "⚠️ НУЖНО ДОЖАТЬ! Соберись!"
-    bot.send_message(chat_id, f"{motivation}\n\n`{bar}` {percent:.1f}%\n✅ Сделано: {u['done']}\n⚠️ Осталось: {left}\n🎯 План: {u['plan']}", parse_mode="Markdown")
+    
+    left_users = u['plan_users'] - u['done_users']
+    percent_users = (u['done_users']/u['plan_users']*100) if u['plan_users'] else 0
+    bar_users = "█" * int(percent_users/10) + "░" * (10 - int(percent_users/10))
+    motivation_users = get_motivation_users(u['done_users'])
+    
+    left_minutes = u['plan_minutes'] - u['done_minutes']
+    percent_minutes = (u['done_minutes']/u['plan_minutes']*100) if u['plan_minutes'] else 0
+    bar_minutes = "█" * int(percent_minutes/10) + "░" * (10 - int(percent_minutes/10))
+    motivation_minutes = get_motivation_minutes(u['done_minutes'])
+    
+    status = (
+        f"📊 *ТВОЙ ПРОГРЕСС*\n\n"
+        f"👥 *ЮЗЕРЫ*\n"
+        f"{motivation_users}\n"
+        f"`{bar_users}` {percent_users:.1f}%\n"
+        f"✅ Сделано: {u['done_users']} / {u['plan_users']}\n"
+        f"⚠️ Осталось: {left_users}\n\n"
+        f"⏱ *ВРЕМЯ*\n"
+        f"{motivation_minutes}\n"
+        f"`{bar_minutes}` {percent_minutes:.1f}%\n"
+        f"✅ Сделано: {format_time(u['done_minutes'])} / {format_time(u['plan_minutes'])}\n"
+        f"⚠️ Осталось: {format_time(left_minutes)}"
+    )
+    bot.send_message(chat_id, status, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: m.text in ["📊 Статус", "📊 Мой статус"])
+@bot.message_handler(func=lambda m: m.text == "📊 Статус" or m.text == "📊 Мой статус")
 def cmd_status(m):
     show_status(m.chat.id)
 
-@bot.message_handler(func=lambda m: m.text in ["➕ Внести"])
-def ask_add(m):
+@bot.message_handler(func=lambda m: m.text == "➕ Внести юзеров")
+def ask_add_users(m):
     bot.send_message(m.chat.id, "Сколько юзеров сделали? Введите число:")
-    bot.register_next_step_handler(m, add_user)
+    bot.register_next_step_handler(m, add_users)
 
-def add_user(m):
+def add_users(m):
     chat_id = m.chat.id
     try:
         val = int(m.text.strip())
         if val <= 0:
-            bot.send_message(chat_id, "Введите положительное число")
+            bot.send_message(chat_id, "❌ Введите положительное число")
             return
         u = get_user(chat_id)
-        new_done = u['done'] + val
-        save_user(chat_id, u['name'], u['plan'], new_done)
-        bot.send_message(chat_id, f"✅ Добавлено {val} юзеров! Всего сделано: {new_done}")
-        if new_done >= u['plan'] and u['done'] < u['plan']:
-            bot.send_message(chat_id, f"🎉 ПОЗДРАВЛЯЮ! План выполнен!")
+        new_done = u['done_users'] + val
+        save_user(chat_id, u['name'], u['plan_users'], new_done, u['plan_minutes'], u['done_minutes'])
+        bot.send_message(chat_id, f"✅ Добавлено {val} юзеров! Всего: {new_done}")
         show_status(chat_id)
     except:
-        bot.send_message(chat_id, "Ошибка. Введите число, например: 5")
+        bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 5")
+
+@bot.message_handler(func=lambda m: m.text == "⏱ Внести минуты")
+def ask_add_minutes(m):
+    bot.send_message(m.chat.id, "Сколько минут отработали? Введите число:")
+    bot.register_next_step_handler(m, add_minutes)
+
+def add_minutes(m):
+    chat_id = m.chat.id
+    try:
+        val = int(m.text.strip())
+        if val <= 0:
+            bot.send_message(chat_id, "❌ Введите положительное число")
+            return
+        u = get_user(chat_id)
+        new_done = u['done_minutes'] + val
+        save_user(chat_id, u['name'], u['plan_users'], u['done_users'], u['plan_minutes'], new_done)
+        bot.send_message(chat_id, f"✅ Добавлено {format_time(val)}! Всего: {format_time(new_done)}")
+        show_status(chat_id)
+    except:
+        bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 60")
 
 @bot.message_handler(func=lambda m: m.text in ["🏆 Рейтинг", "📊 Рейтинг"])
 def cmd_rating(m):
@@ -152,42 +221,122 @@ def cmd_rating(m):
     if not users:
         bot.send_message(m.chat.id, "Нет менеджеров")
         return
+    
     data = []
     for u in users:
-        percent = (u[3]/u[2]*100) if u[2] else 0
-        data.append((u[1], percent, u[3], u[2]))
-    data.sort(key=lambda x: x[1], reverse=True)
-    text = "🏆 РЕЙТИНГ МЕНЕДЖЕРОВ 🏆\n\n"
-    for i, (name, pct, done, plan) in enumerate(data[:10], 1):
-        medal = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else f"{i}."
-        text += f"{medal} {name}: {pct:.1f}% ({done}/{plan})\n"
-    bot.send_message(m.chat.id, text)
+        name = u[1]
+        plan_users = u[2]
+        done_users = u[3]
+        plan_minutes = u[4]
+        done_minutes = u[5]
+        
+        percent_users = (done_users / plan_users * 100) if plan_users > 0 else 0
+        percent_minutes = (done_minutes / plan_minutes * 100) if plan_minutes > 0 else 0
+        avg_percent = (percent_users + percent_minutes) / 2
+        
+        data.append({
+            "name": name,
+            "percent_users": percent_users,
+            "percent_minutes": percent_minutes,
+            "done_users": done_users,
+            "plan_users": plan_users,
+            "done_minutes": done_minutes,
+            "plan_minutes": plan_minutes,
+            "avg_percent": avg_percent
+        })
+    
+    data.sort(key=lambda x: x["avg_percent"], reverse=True)
+    
+    text = "🏆 *ОБЩИЙ РЕЙТИНГ* 🏆\n\n"
+    
+    for i, mng in enumerate(data[:10], 1):
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+        
+        if mng["avg_percent"] >= 90:
+            status_icon = "🏆"
+        elif mng["avg_percent"] >= 70:
+            status_icon = "✅"
+        elif mng["avg_percent"] >= 50:
+            status_icon = "⚠️"
+        else:
+            status_icon = "❌"
+        
+        text += f"{medal} {status_icon} *{mng['name']}*\n"
+        text += f"   👥 {mng['percent_users']:.0f}% ({mng['done_users']}/{mng['plan_users']})\n"
+        text += f"   ⏱ {mng['percent_minutes']:.0f}% ({format_time(mng['done_minutes'])}/{format_time(mng['plan_minutes'])})\n\n"
+    
+    text += "`---`\n"
+    text += "👥 *Юзеры* | ⏱ *Время*\n"
+    text += "🏆 >90% | ✅ >70% | ⚠️ >50% | ❌ <50%"
+    
+    bot.send_message(m.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text in ["✏️ План", "✏️ Мой план"])
 def ask_plan(m):
-    bot.send_message(m.chat.id, "Введите новый план на день:")
-    bot.register_next_step_handler(m, set_plan)
+    bot.send_message(m.chat.id, "Что хотите изменить?\n\n1️⃣ План по юзерам\n2️⃣ План по минутам\n\nВведите 1 или 2:")
+    bot.register_next_step_handler(m, choose_plan)
 
-def set_plan(m):
+def choose_plan(m):
+    chat_id = m.chat.id
+    choice = m.text.strip()
+    if choice == "1":
+        msg = bot.send_message(chat_id, "Введите новый план по юзерам на день:")
+        bot.register_next_step_handler(msg, set_plan_users)
+    elif choice == "2":
+        msg = bot.send_message(chat_id, f"Введите новый план по минутам (сейчас {format_time(TARGET_MINUTES)}):")
+        bot.register_next_step_handler(msg, set_plan_minutes)
+    else:
+        bot.send_message(chat_id, "❌ Введите 1 или 2")
+
+def set_plan_users(m):
     chat_id = m.chat.id
     try:
         p = int(m.text.strip())
         if p <= 0:
-            bot.send_message(chat_id, "Введите положительное число")
+            bot.send_message(chat_id, "❌ Введите положительное число")
             return
         u = get_user(chat_id)
-        save_user(chat_id, u['name'], p, u['done'])
-        bot.send_message(chat_id, f"✅ План изменён на {p} юзеров в день")
+        save_user(chat_id, u['name'], p, u['done_users'], u['plan_minutes'], u['done_minutes'])
+        bot.send_message(chat_id, f"✅ План по юзерам изменён на {p}")
         show_status(chat_id)
     except:
-        bot.send_message(chat_id, "Введите число, например: 25")
+        bot.send_message(chat_id, "❌ Введите число, например: 25")
+
+def set_plan_minutes(m):
+    chat_id = m.chat.id
+    try:
+        p = int(m.text.strip())
+        if p <= 0:
+            bot.send_message(chat_id, "❌ Введите положительное число")
+            return
+        u = get_user(chat_id)
+        save_user(chat_id, u['name'], u['plan_users'], u['done_users'], p, u['done_minutes'])
+        bot.send_message(chat_id, f"✅ План по минутам изменён на {format_time(p)}")
+        show_status(chat_id)
+    except:
+        bot.send_message(chat_id, "❌ Введите число, например: 480")
 
 @bot.message_handler(func=lambda m: m.text in ["🔄 Сброс", "🔄 Мой сброс"])
-def cmd_reset(m):
+def ask_reset(m):
+    bot.send_message(m.chat.id, "Что сбросить?\n\n1️⃣ Сбросить юзеров\n2️⃣ Сбросить минуты\n3️⃣ Сбросить всё\n\nВведите 1, 2 или 3:")
+    bot.register_next_step_handler(m, choose_reset)
+
+def choose_reset(m):
     chat_id = m.chat.id
+    choice = m.text.strip()
     u = get_user(chat_id)
-    save_user(chat_id, u['name'], u['plan'], 0)
-    bot.send_message(chat_id, "🔄 Счётчик сброшен. Начинаете с нуля!")
+    if choice == "1":
+        save_user(chat_id, u['name'], u['plan_users'], 0, u['plan_minutes'], u['done_minutes'])
+        bot.send_message(chat_id, "🔄 Счётчик юзеров сброшен")
+    elif choice == "2":
+        save_user(chat_id, u['name'], u['plan_users'], u['done_users'], u['plan_minutes'], 0)
+        bot.send_message(chat_id, "🔄 Счётчик минут сброшен")
+    elif choice == "3":
+        save_user(chat_id, u['name'], u['plan_users'], 0, u['plan_minutes'], 0)
+        bot.send_message(chat_id, "🔄 Все счётчики сброшены")
+    else:
+        bot.send_message(chat_id, "❌ Введите 1, 2 или 3")
+        return
     show_status(chat_id)
 
 @bot.message_handler(func=lambda m: m.text == "📋 Список" and is_admin(m.chat.id))
@@ -198,9 +347,10 @@ def admin_list(m):
         return
     text = "📋 СПИСОК МЕНЕДЖЕРОВ\n\n"
     for u in users:
-        percent = (u[3]/u[2]*100) if u[2] else 0
-        status = "✅" if percent >= 100 else "⚠️"
-        text += f"{status} {u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
+        percent_users = (u[3]/u[2]*100) if u[2] else 0
+        percent_minutes = (u[5]/u[4]*100) if u[4] else 0
+        status = "✅" if percent_users >= 100 else "⚠️"
+        text += f"{status} {u[1]}: 👥 {percent_users:.0f}% ⏱ {percent_minutes:.0f}%\n"
     bot.send_message(m.chat.id, text)
 
 def send_reports():
@@ -212,8 +362,9 @@ def send_reports():
             if users:
                 report = "📊 ОТЧЁТ\n\n"
                 for u in users:
-                    percent = (u[3]/u[2]*100) if u[2] else 0
-                    report += f"{u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
+                    percent_users = (u[3]/u[2]*100) if u[2] else 0
+                    percent_minutes = (u[5]/u[4]*100) if u[4] else 0
+                    report += f"{u[1]}: 👥 {percent_users:.0f}% ⏱ {percent_minutes:.0f}%\n"
                 for chat_id in get_all_chats_for_report():
                     try:
                         bot.send_message(chat_id, report)
@@ -233,8 +384,9 @@ def check_missed_report():
         if users:
             report = "📊 ОТЧЁТ (пропущенный)\n\n"
             for u in users:
-                percent = (u[3]/u[2]*100) if u[2] else 0
-                report += f"{u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
+                percent_users = (u[3]/u[2]*100) if u[2] else 0
+                percent_minutes = (u[5]/u[4]*100) if u[4] else 0
+                report += f"{u[1]}: 👥 {percent_users:.0f}% ⏱ {percent_minutes:.0f}%\n"
             for chat_id in get_all_chats_for_report():
                 try:
                     bot.send_message(chat_id, report)
