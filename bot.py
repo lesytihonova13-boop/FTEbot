@@ -6,6 +6,7 @@ import threading
 import time
 from flask import Flask
 import os
+import requests
 
 BOT_TOKEN = "8679034549:AAGiDwFbLrUF-beBHKHGMqRyTDBuFZo9jcU"
 ADMIN_CHAT_ID = 284970550
@@ -204,8 +205,11 @@ def admin_list(m):
     bot.send_message(m.chat.id, text)
 
 def send_reports():
+    import requests
+    my_url = "https://ftebot.onrender.com"
     while True:
         now = datetime.now()
+        # Отправка отчётов в 12, 15, 18 часов
         if now.hour in [12, 15, 18] and now.minute == 0:
             users = get_all_users()
             if users:
@@ -218,7 +222,16 @@ def send_reports():
                         bot.send_message(chat_id, report)
                     except:
                         pass
-        time.sleep(60)
+        
+        # Самопинг каждые 10 минут (чтобы Render не засыпал)
+        if now.minute % 10 == 0 and now.second < 30:
+            try:
+                requests.get(my_url, timeout=5)
+                print("Пинг выполнен")
+            except:
+                pass
+        
+        time.sleep(30)
 
 @app.route('/')
 def home():
