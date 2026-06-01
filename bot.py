@@ -16,13 +16,6 @@ app = Flask(__name__)
 
 TARGET_MINUTES = 210
 
-def format_time(minutes):
-    hours = minutes // 60
-    mins = minutes % 60
-    if hours > 0:
-        return f"{hours}ч {mins}мин"
-    return f"{mins}мин"
-
 def init_db():
     conn = sqlite3.connect('data.db')
     c = conn.cursor()
@@ -142,7 +135,7 @@ def set_name(m):
     chat_id = m.chat.id
     name = m.text.strip()
     save_user(chat_id, name, 25, 0, TARGET_MINUTES, 0)
-    bot.send_message(chat_id, f"Приятно познакомиться, {name}!\n\n📊 План по юзерам: 25\n⏱ План по времени на линии: {format_time(TARGET_MINUTES)}", reply_markup=menu(chat_id))
+    bot.send_message(chat_id, f"Приятно познакомиться, {name}!\n\n📊 План по юзерам: 25\n⏱ План по времени на линии: {TARGET_MINUTES} мин", reply_markup=menu(chat_id))
     if not is_admin(chat_id):
         show_status(chat_id)
 
@@ -169,8 +162,8 @@ def show_status(chat_id):
         f"⏱ *ВРЕМЯ НА ЛИНИИ*\n"
         f"{motivation_minutes}\n"
         f"`{bar_minutes}` {percent_minutes:.1f}%\n"
-        f"✅ Внесено: {format_time(u['done_minutes'])} / {format_time(u['plan_minutes'])}\n"
-        f"⚠️ Осталось: {format_time(left_minutes)}"
+        f"✅ Внесено: {u['done_minutes']} / {u['plan_minutes']} мин\n"
+        f"⚠️ Осталось: {left_minutes} мин"
     )
     bot.send_message(chat_id, status, parse_mode="Markdown")
 
@@ -212,7 +205,7 @@ def add_minutes(m):
             return
         u = get_user(chat_id)
         save_user(chat_id, u['name'], u['plan_users'], u['done_users'], u['plan_minutes'], val)
-        bot.send_message(chat_id, f"✅ Время на линии обновлено: {format_time(val)} / {format_time(u['plan_minutes'])}")
+        bot.send_message(chat_id, f"✅ Время на линии обновлено: {val} / {u['plan_minutes']} мин")
         show_status(chat_id)
     except:
         bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 60")
@@ -265,11 +258,10 @@ def cmd_rating(m):
         
         text += f"{medal} {status_icon} *{mng['name']}*\n"
         text += f"   👥 {mng['done_users']}/{mng['plan_users']} ({mng['percent_users']:.0f}%)\n"
-        text += f"   ⏱ {format_time(mng['done_minutes'])}/{format_time(mng['plan_minutes'])} ({mng['percent_minutes']:.0f}%)\n\n"
+        text += f"   ⏱ {mng['done_minutes']}/{mng['plan_minutes']} мин ({mng['percent_minutes']:.0f}%)\n\n"
     
     text += "`---`\n"
-    text += "👥 *Юзеры* | ⏱ *Время на линии*\n"
-    text += "🏆 >90% | ✅ >70% | ⚠️ >50% | ❌ <50%"
+    text += "👥 *Юзеры* | ⏱ *Время на линии*"
     
     bot.send_message(m.chat.id, text, parse_mode="Markdown")
 
@@ -285,7 +277,7 @@ def choose_plan(m):
         msg = bot.send_message(chat_id, "Введите новый план по юзерам на день:")
         bot.register_next_step_handler(msg, set_plan_users)
     elif choice == "2":
-        msg = bot.send_message(chat_id, f"Введите новый план по времени на линии (сейчас {format_time(TARGET_MINUTES)}):")
+        msg = bot.send_message(chat_id, f"Введите новый план по времени на линии (сейчас {TARGET_MINUTES} мин):")
         bot.register_next_step_handler(msg, set_plan_minutes)
     else:
         bot.send_message(chat_id, "❌ Введите 1 или 2")
@@ -313,7 +305,7 @@ def set_plan_minutes(m):
             return
         u = get_user(chat_id)
         save_user(chat_id, u['name'], u['plan_users'], u['done_users'], p, u['done_minutes'])
-        bot.send_message(chat_id, f"✅ План по времени на линии изменён на {format_time(p)}")
+        bot.send_message(chat_id, f"✅ План по времени на линии изменён на {p} мин")
         show_status(chat_id)
     except:
         bot.send_message(chat_id, "❌ Введите число, например: 210")
@@ -352,7 +344,7 @@ def admin_list(m):
         percent_users = (u[3]/u[2]*100) if u[2] else 0
         percent_minutes = (u[5]/u[4]*100) if u[4] else 0
         status = "✅" if percent_users >= 100 else "⚠️"
-        text += f"{status} {u[1]}: 👥 {percent_users:.0f}% ⏱ {percent_minutes:.0f}%\n"
+        text += f"{status} {u[1]}: 👥 {percent_users:.0f}% | ⏱ {percent_minutes:.0f}%\n"
     bot.send_message(m.chat.id, text)
 
 def send_reports():
@@ -384,7 +376,7 @@ def send_reports():
                     
                     report += f"{icon} *{name}*\n"
                     report += f"   👥 {done_users}/{plan_users} ({percent_users:.0f}%)\n"
-                    report += f"   ⏱ {format_time(done_minutes)}/{format_time(plan_minutes)} ({percent_minutes:.0f}%)\n\n"
+                    report += f"   ⏱ {done_minutes}/{plan_minutes} мин ({percent_minutes:.0f}%)\n\n"
                 
                 report += "`---`\n"
                 report += "✅✅ План выполнен | ✅ Юзеры | ⏱✅ Время | ⚠️ В работе"
@@ -428,7 +420,7 @@ def check_missed_report():
                 
                 report += f"{icon} *{name}*\n"
                 report += f"   👥 {done_users}/{plan_users} ({percent_users:.0f}%)\n"
-                report += f"   ⏱ {format_time(done_minutes)}/{format_time(plan_minutes)} ({percent_minutes:.0f}%)\n\n"
+                report += f"   ⏱ {done_minutes}/{plan_minutes} мин ({percent_minutes:.0f}%)\n\n"
             
             report += "`---`\n"
             report += "✅✅ План выполнен | ✅ Юзеры | ⏱✅ Время | ⚠️ В работе"
