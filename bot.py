@@ -14,7 +14,6 @@ ADMIN_CHAT_ID = 284970550
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# План в минутах (480 минут = 8 часов)
 TARGET_MINUTES = 480
 
 def format_time(minutes):
@@ -102,13 +101,13 @@ def get_motivation_users(done):
 
 def get_motivation_minutes(done):
     if done >= TARGET_MINUTES:
-        return "🏆 ОТЛИЧНО! Время использовано отлично!"
+        return "🏆 ОТЛИЧНО! Время на линии отличное!"
     elif done >= TARGET_MINUTES * 0.9:
         return "✅ ХОРОШО! Почти у цели по времени!"
     elif done >= TARGET_MINUTES * 0.7:
         return "👍 ТЫ СМОЖЕШЬ! Поднажми!"
     else:
-        return "⚠️ НУЖНО ДОЖАТЬ! Мало времени!"
+        return "⚠️ НУЖНО ДОЖАТЬ! Мало времени на линии!"
 
 def menu(chat_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -139,7 +138,7 @@ def set_name(m):
     chat_id = m.chat.id
     name = m.text.strip()
     save_user(chat_id, name, 25, 0, TARGET_MINUTES, 0)
-    bot.send_message(chat_id, f"Приятно познакомиться, {name}!\n\n📊 План по юзерам: 25\n⏱ План по времени: {format_time(TARGET_MINUTES)}", reply_markup=menu(chat_id))
+    bot.send_message(chat_id, f"Приятно познакомиться, {name}!\n\n📊 План по юзерам: 25\n⏱ План по времени на линии: {format_time(TARGET_MINUTES)}", reply_markup=menu(chat_id))
     if not is_admin(chat_id):
         show_status(chat_id)
 
@@ -163,10 +162,10 @@ def show_status(chat_id):
         f"`{bar_users}` {percent_users:.1f}%\n"
         f"✅ Сделано: {u['done_users']} / {u['plan_users']}\n"
         f"⚠️ Осталось: {left_users}\n\n"
-        f"⏱ *ВРЕМЯ*\n"
+        f"⏱ *ВРЕМЯ НА ЛИНИИ*\n"
         f"{motivation_minutes}\n"
         f"`{bar_minutes}` {percent_minutes:.1f}%\n"
-        f"✅ Сделано: {format_time(u['done_minutes'])} / {format_time(u['plan_minutes'])}\n"
+        f"✅ Внесено: {format_time(u['done_minutes'])} / {format_time(u['plan_minutes'])}\n"
         f"⚠️ Осталось: {format_time(left_minutes)}"
     )
     bot.send_message(chat_id, status, parse_mode="Markdown")
@@ -197,20 +196,20 @@ def add_users(m):
 
 @bot.message_handler(func=lambda m: m.text == "⏱ Внести минуты")
 def ask_add_minutes(m):
-    bot.send_message(m.chat.id, "Сколько минут отработали? Введите число:")
+    bot.send_message(m.chat.id, "Сколько минут вы были на линии? Введите число:")
     bot.register_next_step_handler(m, add_minutes)
 
 def add_minutes(m):
     chat_id = m.chat.id
     try:
         val = int(m.text.strip())
-        if val <= 0:
-            bot.send_message(chat_id, "❌ Введите положительное число")
+        if val < 0:
+            bot.send_message(chat_id, "❌ Введите положительное число или 0")
             return
         u = get_user(chat_id)
-        new_done = u['done_minutes'] + val
-        save_user(chat_id, u['name'], u['plan_users'], u['done_users'], u['plan_minutes'], new_done)
-        bot.send_message(chat_id, f"✅ Добавлено {format_time(val)}! Всего: {format_time(new_done)}")
+        # Вместо сложения — просто сохраняем новое значение
+        save_user(chat_id, u['name'], u['plan_users'], u['done_users'], u['plan_minutes'], val)
+        bot.send_message(chat_id, f"✅ Время на линии обновлено: {format_time(val)} / {format_time(u['plan_minutes'])}")
         show_status(chat_id)
     except:
         bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 60")
@@ -266,14 +265,14 @@ def cmd_rating(m):
         text += f"   ⏱ {mng['percent_minutes']:.0f}% ({format_time(mng['done_minutes'])}/{format_time(mng['plan_minutes'])})\n\n"
     
     text += "`---`\n"
-    text += "👥 *Юзеры* | ⏱ *Время*\n"
+    text += "👥 *Юзеры* | ⏱ *Время на линии*\n"
     text += "🏆 >90% | ✅ >70% | ⚠️ >50% | ❌ <50%"
     
     bot.send_message(m.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text in ["✏️ План", "✏️ Мой план"])
 def ask_plan(m):
-    bot.send_message(m.chat.id, "Что хотите изменить?\n\n1️⃣ План по юзерам\n2️⃣ План по минутам\n\nВведите 1 или 2:")
+    bot.send_message(m.chat.id, "Что хотите изменить?\n\n1️⃣ План по юзерам\n2️⃣ План по времени на линии\n\nВведите 1 или 2:")
     bot.register_next_step_handler(m, choose_plan)
 
 def choose_plan(m):
@@ -283,7 +282,7 @@ def choose_plan(m):
         msg = bot.send_message(chat_id, "Введите новый план по юзерам на день:")
         bot.register_next_step_handler(msg, set_plan_users)
     elif choice == "2":
-        msg = bot.send_message(chat_id, f"Введите новый план по минутам (сейчас {format_time(TARGET_MINUTES)}):")
+        msg = bot.send_message(chat_id, f"Введите новый план по времени на линии (сейчас {format_time(TARGET_MINUTES)}):")
         bot.register_next_step_handler(msg, set_plan_minutes)
     else:
         bot.send_message(chat_id, "❌ Введите 1 или 2")
@@ -311,14 +310,14 @@ def set_plan_minutes(m):
             return
         u = get_user(chat_id)
         save_user(chat_id, u['name'], u['plan_users'], u['done_users'], p, u['done_minutes'])
-        bot.send_message(chat_id, f"✅ План по минутам изменён на {format_time(p)}")
+        bot.send_message(chat_id, f"✅ План по времени на линии изменён на {format_time(p)}")
         show_status(chat_id)
     except:
         bot.send_message(chat_id, "❌ Введите число, например: 480")
 
 @bot.message_handler(func=lambda m: m.text in ["🔄 Сброс", "🔄 Мой сброс"])
 def ask_reset(m):
-    bot.send_message(m.chat.id, "Что сбросить?\n\n1️⃣ Сбросить юзеров\n2️⃣ Сбросить минуты\n3️⃣ Сбросить всё\n\nВведите 1, 2 или 3:")
+    bot.send_message(m.chat.id, "Что сбросить?\n\n1️⃣ Сбросить юзеров\n2️⃣ Сбросить время на линии\n3️⃣ Сбросить всё\n\nВведите 1, 2 или 3:")
     bot.register_next_step_handler(m, choose_reset)
 
 def choose_reset(m):
@@ -330,7 +329,7 @@ def choose_reset(m):
         bot.send_message(chat_id, "🔄 Счётчик юзеров сброшен")
     elif choice == "2":
         save_user(chat_id, u['name'], u['plan_users'], u['done_users'], u['plan_minutes'], 0)
-        bot.send_message(chat_id, "🔄 Счётчик минут сброшен")
+        bot.send_message(chat_id, "🔄 Счётчик времени на линии сброшен")
     elif choice == "3":
         save_user(chat_id, u['name'], u['plan_users'], 0, u['plan_minutes'], 0)
         bot.send_message(chat_id, "🔄 Все счётчики сброшены")
