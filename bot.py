@@ -31,12 +31,17 @@ def init_db():
         name TEXT,
         plan_users INTEGER DEFAULT 25,
         done_users INTEGER DEFAULT 0,
-        plan_minutes INTEGER DEFAULT 480,
+        plan_minutes INTEGER DEFAULT 210,
         done_minutes INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS admins (
         chat_id INTEGER PRIMARY KEY)''')
     c.execute('INSERT OR IGNORE INTO admins (chat_id) VALUES (?)', (ADMIN_CHAT_ID,))
-    c.execute('INSERT OR IGNORE INTO users (chat_id, name, plan_users, done_users, plan_minutes, done_minutes) VALUES (?, ?, 25, 0, 480, 0)', (ADMIN_CHAT_ID, "Руководитель"))
+    
+    # Проверяем, есть ли уже администратор в таблице users
+    c.execute('SELECT * FROM users WHERE chat_id = ?', (ADMIN_CHAT_ID,))
+    if not c.fetchone():
+        c.execute('INSERT INTO users (chat_id, name, plan_users, done_users, plan_minutes, done_minutes) VALUES (?, ?, 25, 0, 210, 0)', (ADMIN_CHAT_ID, "Руководитель"))
+    
     conn.commit()
     conn.close()
 
@@ -196,7 +201,7 @@ def add_users(m):
 
 @bot.message_handler(func=lambda m: m.text == "⏱ Внести минуты")
 def ask_add_minutes(m):
-    bot.send_message(m.chat.id, "Сколько минут вы были на линии? Введите число:")
+    bot.send_message(m.chat.id, "Сколько минут вы были на линии? Введите число (обновит текущее значение):")
     bot.register_next_step_handler(m, add_minutes)
 
 def add_minutes(m):
@@ -207,7 +212,6 @@ def add_minutes(m):
             bot.send_message(chat_id, "❌ Введите положительное число или 0")
             return
         u = get_user(chat_id)
-        # Вместо сложения — просто сохраняем новое значение
         save_user(chat_id, u['name'], u['plan_users'], u['done_users'], u['plan_minutes'], val)
         bot.send_message(chat_id, f"✅ Время на линии обновлено: {format_time(val)} / {format_time(u['plan_minutes'])}")
         show_status(chat_id)
@@ -313,7 +317,7 @@ def set_plan_minutes(m):
         bot.send_message(chat_id, f"✅ План по времени на линии изменён на {format_time(p)}")
         show_status(chat_id)
     except:
-        bot.send_message(chat_id, "❌ Введите число, например: 480")
+        bot.send_message(chat_id, "❌ Введите число, например: 210")
 
 @bot.message_handler(func=lambda m: m.text in ["🔄 Сброс", "🔄 Мой сброс"])
 def ask_reset(m):
