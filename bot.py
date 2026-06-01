@@ -236,10 +236,29 @@ def send_reports():
 @app.route('/')
 def home():
     return "Бот работает!"
+    
+    def check_missed_report():
+    now = datetime.now()
+    if now.hour in [12, 15, 18] and now.minute > 0 and now.minute < 10:
+        users = get_all_users()
+        if users:
+            report = "📊 ОТЧЁТ (пропущенный)\n\n"
+            for u in users:
+                percent = (u[3]/u[2]*100) if u[2] else 0
+                report += f"{u[1]}: {percent:.1f}% ({u[3]}/{u[2]})\n"
+            for chat_id in get_all_chats_for_report():
+                try:
+                    bot.send_message(chat_id, report)
+                except:
+                    pass
 
 if __name__ == "__main__":
     init_db()
     threading.Thread(target=send_reports, daemon=True).start()
-    threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
+    threading.Thread(target=bot.infinity_polling, daemon=True).start()
+    
+    # Проверка пропущенного отчёта при запуске
+    check_missed_report()
+    
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
