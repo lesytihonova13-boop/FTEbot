@@ -37,7 +37,6 @@ def init_db():
         chat_id INTEGER PRIMARY KEY)''')
     c.execute('INSERT OR IGNORE INTO admins (chat_id) VALUES (?)', (ADMIN_CHAT_ID,))
     
-    # Проверяем, есть ли уже администратор в таблице users
     c.execute('SELECT * FROM users WHERE chat_id = ?', (ADMIN_CHAT_ID,))
     if not c.fetchone():
         c.execute('INSERT INTO users (chat_id, name, plan_users, done_users, plan_minutes, done_minutes) VALUES (?, ?, 25, 0, 210, 0)', (ADMIN_CHAT_ID, "Руководитель"))
@@ -265,8 +264,8 @@ def cmd_rating(m):
             status_icon = "❌"
         
         text += f"{medal} {status_icon} *{mng['name']}*\n"
-        text += f"   👥 {mng['percent_users']:.0f}% ({mng['done_users']}/{mng['plan_users']})\n"
-        text += f"   ⏱ {mng['percent_minutes']:.0f}% ({format_time(mng['done_minutes'])}/{format_time(mng['plan_minutes'])})\n\n"
+        text += f"   👥 {mng['done_users']}/{mng['plan_users']} ({mng['percent_users']:.0f}%)\n"
+        text += f"   ⏱ {format_time(mng['done_minutes'])}/{format_time(mng['plan_minutes'])} ({mng['percent_minutes']:.0f}%)\n\n"
     
     text += "`---`\n"
     text += "👥 *Юзеры* | ⏱ *Время на линии*\n"
@@ -363,14 +362,36 @@ def send_reports():
         if now.hour in [12, 15, 18] and now.minute == 0:
             users = get_all_users()
             if users:
-                report = "📊 ОТЧЁТ\n\n"
+                report = "📊 *ОТЧЁТ* 📊\n\n"
                 for u in users:
-                    percent_users = (u[3]/u[2]*100) if u[2] else 0
-                    percent_minutes = (u[5]/u[4]*100) if u[4] else 0
-                    report += f"{u[1]}: 👥 {percent_users:.0f}% ⏱ {percent_minutes:.0f}%\n"
+                    name = u[1]
+                    plan_users = u[2]
+                    done_users = u[3]
+                    plan_minutes = u[4]
+                    done_minutes = u[5]
+                    
+                    percent_users = (done_users / plan_users * 100) if plan_users > 0 else 0
+                    percent_minutes = (done_minutes / plan_minutes * 100) if plan_minutes > 0 else 0
+                    
+                    if percent_users >= 100 and percent_minutes >= 100:
+                        icon = "✅✅"
+                    elif percent_users >= 100:
+                        icon = "✅"
+                    elif percent_minutes >= 100:
+                        icon = "⏱✅"
+                    else:
+                        icon = "⚠️"
+                    
+                    report += f"{icon} *{name}*\n"
+                    report += f"   👥 {done_users}/{plan_users} ({percent_users:.0f}%)\n"
+                    report += f"   ⏱ {format_time(done_minutes)}/{format_time(plan_minutes)} ({percent_minutes:.0f}%)\n\n"
+                
+                report += "`---`\n"
+                report += "✅✅ План выполнен | ✅ Юзеры | ⏱✅ Время | ⚠️ В работе"
+                
                 for chat_id in get_all_chats_for_report():
                     try:
-                        bot.send_message(chat_id, report)
+                        bot.send_message(chat_id, report, parse_mode="Markdown")
                     except:
                         pass
         if now.minute % 10 == 0 and now.second < 30:
@@ -385,14 +406,36 @@ def check_missed_report():
     if now.hour in [12, 15, 18] and now.minute > 0 and now.minute < 10:
         users = get_all_users()
         if users:
-            report = "📊 ОТЧЁТ (пропущенный)\n\n"
+            report = "📊 *ОТЧЁТ (ПРОПУЩЕННЫЙ)* 📊\n\n"
             for u in users:
-                percent_users = (u[3]/u[2]*100) if u[2] else 0
-                percent_minutes = (u[5]/u[4]*100) if u[4] else 0
-                report += f"{u[1]}: 👥 {percent_users:.0f}% ⏱ {percent_minutes:.0f}%\n"
+                name = u[1]
+                plan_users = u[2]
+                done_users = u[3]
+                plan_minutes = u[4]
+                done_minutes = u[5]
+                
+                percent_users = (done_users / plan_users * 100) if plan_users > 0 else 0
+                percent_minutes = (done_minutes / plan_minutes * 100) if plan_minutes > 0 else 0
+                
+                if percent_users >= 100 and percent_minutes >= 100:
+                    icon = "✅✅"
+                elif percent_users >= 100:
+                    icon = "✅"
+                elif percent_minutes >= 100:
+                    icon = "⏱✅"
+                else:
+                    icon = "⚠️"
+                
+                report += f"{icon} *{name}*\n"
+                report += f"   👥 {done_users}/{plan_users} ({percent_users:.0f}%)\n"
+                report += f"   ⏱ {format_time(done_minutes)}/{format_time(plan_minutes)} ({percent_minutes:.0f}%)\n\n"
+            
+            report += "`---`\n"
+            report += "✅✅ План выполнен | ✅ Юзеры | ⏱✅ Время | ⚠️ В работе"
+            
             for chat_id in get_all_chats_for_report():
                 try:
-                    bot.send_message(chat_id, report)
+                    bot.send_message(chat_id, report, parse_mode="Markdown")
                 except:
                     pass
 
