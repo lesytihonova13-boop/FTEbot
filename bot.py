@@ -32,12 +32,12 @@ def init_db():
         name TEXT,
         plan_users INTEGER DEFAULT 25,
         done_users INTEGER DEFAULT 0,
-        plan_minutes INTEGER DEFAULT ?,
-        done_minutes INTEGER DEFAULT 0)''', (TARGET_MINUTES,))
+        plan_minutes INTEGER DEFAULT 480,
+        done_minutes INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS admins (
         chat_id INTEGER PRIMARY KEY)''')
     c.execute('INSERT OR IGNORE INTO admins (chat_id) VALUES (?)', (ADMIN_CHAT_ID,))
-    c.execute('INSERT OR IGNORE INTO users (chat_id, name, plan_users, done_users, plan_minutes, done_minutes) VALUES (?, ?, 25, 0, ?, 0)', (ADMIN_CHAT_ID, "Руководитель", TARGET_MINUTES))
+    c.execute('INSERT OR IGNORE INTO users (chat_id, name, plan_users, done_users, plan_minutes, done_minutes) VALUES (?, ?, 25, 0, 480, 0)', (ADMIN_CHAT_ID, "Руководитель"))
     conn.commit()
     conn.close()
 
