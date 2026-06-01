@@ -14,7 +14,7 @@ ADMIN_CHAT_ID = 284970550
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-TARGET_MINUTES = 480
+TARGET_MINUTES = 210
 
 def format_time(minutes):
     hours = minutes // 60
