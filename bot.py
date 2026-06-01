@@ -25,7 +25,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS admins (
         chat_id INTEGER PRIMARY KEY)''')
     c.execute('INSERT OR IGNORE INTO admins (chat_id) VALUES (?)', (ADMIN_CHAT_ID,))
-    # Автоматически добавляем администратора как менеджера
     c.execute('INSERT OR IGNORE INTO users (chat_id, name, plan, done) VALUES (?, ?, 25, 0)', (ADMIN_CHAT_ID, "Руководитель"))
     conn.commit()
     conn.close()
@@ -125,7 +124,7 @@ def show_status(chat_id):
 def cmd_status(m):
     show_status(m.chat.id)
 
-@bot.message_handler(func=lambda m: m.text in ["➕ Внести", "➕ Внести"])
+@bot.message_handler(func=lambda m: m.text in ["➕ Внести"])
 def ask_add(m):
     bot.send_message(m.chat.id, "Сколько юзеров сделали? Введите число:")
     bot.register_next_step_handler(m, add_user)
@@ -135,17 +134,17 @@ def add_user(m):
     try:
         val = int(m.text.strip())
         if val <= 0:
-            bot.send_message(chat_id, "❌ Введите положительное число")
+            bot.send_message(chat_id, "Введите положительное число")
             return
         u = get_user(chat_id)
         new_done = u['done'] + val
         save_user(chat_id, u['name'], u['plan'], new_done)
-        bot.send_message(chat_id, f"✅ Добавлено {val} юзеров!")
+        bot.send_message(chat_id, f"✅ Добавлено {val} юзеров! Всего сделано: {new_done}")
         if new_done >= u['plan'] and u['done'] < u['plan']:
             bot.send_message(chat_id, f"🎉 ПОЗДРАВЛЯЮ! План выполнен!")
         show_status(chat_id)
     except:
-        bot.send_message(chat_id, "❌ Ошибка. Введите число, например: 5")
+        bot.send_message(chat_id, "Ошибка. Введите число, например: 5")
 
 @bot.message_handler(func=lambda m: m.text in ["🏆 Рейтинг", "📊 Рейтинг"])
 def cmd_rating(m):
@@ -174,14 +173,14 @@ def set_plan(m):
     try:
         p = int(m.text.strip())
         if p <= 0:
-            bot.send_message(chat_id, "❌ Введите положительное число")
+            bot.send_message(chat_id, "Введите положительное число")
             return
         u = get_user(chat_id)
         save_user(chat_id, u['name'], p, u['done'])
         bot.send_message(chat_id, f"✅ План изменён на {p} юзеров в день")
         show_status(chat_id)
     except:
-        bot.send_message(chat_id, "❌ Введите число, например: 25")
+        bot.send_message(chat_id, "Введите число, например: 25")
 
 @bot.message_handler(func=lambda m: m.text in ["🔄 Сброс", "🔄 Мой сброс"])
 def cmd_reset(m):
@@ -205,11 +204,9 @@ def admin_list(m):
     bot.send_message(m.chat.id, text)
 
 def send_reports():
-    import requests
     my_url = "https://ftebot.onrender.com"
     while True:
         now = datetime.now()
-        # Отправка отчётов в 12, 15, 18 часов
         if now.hour in [12, 15, 18] and now.minute == 0:
             users = get_all_users()
             if users:
@@ -222,22 +219,14 @@ def send_reports():
                         bot.send_message(chat_id, report)
                     except:
                         pass
-        
-        # Самопинг каждые 10 минут (чтобы Render не засыпал)
         if now.minute % 10 == 0 and now.second < 30:
             try:
                 requests.get(my_url, timeout=5)
-                print("Пинг выполнен")
             except:
                 pass
-        
         time.sleep(30)
 
-@app.route('/')
-def home():
-    return "Бот работает!"
-    
-    def check_missed_report():
+def check_missed_report():
     now = datetime.now()
     if now.hour in [12, 15, 18] and now.minute > 0 and now.minute < 10:
         users = get_all_users()
@@ -252,13 +241,14 @@ def home():
                 except:
                     pass
 
+@app.route('/')
+def home():
+    return "Бот работает 24/7!"
+
 if __name__ == "__main__":
     init_db()
     threading.Thread(target=send_reports, daemon=True).start()
     threading.Thread(target=bot.infinity_polling, daemon=True).start()
-    
-    # Проверка пропущенного отчёта при запуске
     check_missed_report()
-    
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
