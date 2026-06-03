@@ -8,7 +8,7 @@ from flask import Flask
 import os
 import requests
 
-BOT_TOKEN = "8679034549:AAGiDwFbLrUF-beBHKHGMqRyTDBuFZo9jcU"
+BOT_TOKEN = "8679034549:AAEGFvqbk78JkcSeuJ9RNP1RglrHX2jGPOc"
 ADMIN_CHAT_ID = 284970550
 
 bot = telebot.TeleBot(BOT_TOKEN)
